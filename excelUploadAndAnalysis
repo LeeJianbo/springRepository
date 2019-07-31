@@ -1,0 +1,167 @@
+
+/**
+ * excel文件上传，并解析方法
+ * MultipartFile为上传文件
+ */
+public FileUploadDTO upload(FileUploadDTO fileUploadDTO, UserInfoDTO userInfoDTO) {
+        MultipartFile file = fileUploadDTO.getUploadFile();
+
+        try {
+            // 导入时需要验证参数是否齐全
+            /*String url = fileUploadDTO.getUrl();*/
+            Long dataSourceCode = Long.parseLong(fileUploadDTO.getDataSourceCode());
+            Long businessId = fileUploadDTO.getBusinessId();
+            String taskName = fileUploadDTO.getTaskName();
+            // 查询数据源信息
+            DataSourceDataBase dataSourceDataBase = dataBaseRepository.findOne(dataSourceCode);
+            if (dataSourceCode == null || businessId == null || taskName == null) {
+                throw new RuntimeException("请填入必填参数！");
+            }
+            if (StringUtils.isEmpty(dataSourceDataBase.getUrl())) {
+                throw new RuntimeException("无该数据源信息!");
+            }
+            PassiveTask passiveTask = new PassiveTask();
+            passiveTask.setTaskName(taskName);
+            passiveTask.setBusinessCode(businessId);
+            passiveTask.setDataSource(dataSourceCode);
+            passiveTaskRepositroy.save(passiveTask);
+            // 生成变更单
+            Long metadataChangeId = metaDataService.addMetadataChange(userInfoDTO.getId(), ConstantUtils.CHANGE_TYPE_IMPORT, ConstantUtils.TYPE_DATABASE.toString(), businessId, fileUploadDTO.getTaskName());
+
+            Workbook wb = null;
+            String fileName = file.getOriginalFilename();
+            String[] split = fileName.split("\\.");
+            // 判断后缀名
+            // 根据文件后缀（xls/xlsx）进行判断
+            if (ConstantUtils.PASSIVE_XLS.equals(split[split.length - 1])) {
+                wb = new HSSFWorkbook(file.getInputStream());
+            } else if (ConstantUtils.PASSIVE_XLSX.equals(split[split.length - 1])) {
+                wb = new XSSFWorkbook(file.getInputStream());
+            } else {
+                throw new RuntimeException("文件类型错误!");
+            }
+            Set<MetaDataDatabaseFlowRecord> tableSet = new HashSet<>();
+            // 开始解析
+            // 模型数量
+            int tableNum = 0;
+            // 字段数量
+            int fieldNum = 0;
+            List<MetaDataDatabaseFlowRecord> listTables = new ArrayList();
+            List<MetaDataDatabaseFieldFlowRecord> listFields = new ArrayList();
+            for (int i = 1; i < wb.getNumberOfSheets(); i++) {
+
+                Sheet sheet = wb.getSheetAt(i);
+                // 字段开始下标
+                int firstRowIndex = sheet.getFirstRowNum() + 2;
+                // 字段结束下标
+                int lastRowIndex = sheet.getLastRowNum();
+                // 新建表信息
+                MetaDataDatabaseFlowRecord table = new MetaDataDatabaseFlowRecord();
+                table.setPassiveId(passiveTask.getId());
+                table.setBusinessClassId(businessId);
+                table.setBusinessClassName(operationRepository.findOne(businessId).getName());
+                // 获取表英文名
+                table.setNameEn(sheet.getSheetName());
+                // 获取表中文名
+                Cell cell = sheet.getRow(0).getCell(0);
+                table.setName(cell.toString());
+                table.setDatabaseType(dataSourceDataBase.getDataBaseType());
+                table.setCollectType(ConstantUtils.COLLECT_TYPE_PASSIVE);
+                // 元数据类型？？？？
+                table.setMetaType(ConstantUtils.META_TYPE_TABLE);
+                table.setSourceId(dataSourceCode);
+                table.setStatus(ConstantUtils.DATA_STATUS_E);
+                table.setOperationStatus(MetaDataStatusEnums.ENABLE.getIndex());
+                table.setChangeId(metadataChangeId);
+                mDDBFRRepository.save(table);
+
+                Set<MetaDataDatabaseFieldFlowRecord> fieldSet = new HashSet<>();
+                // 判断是否有主键flag,如果遍历完所有行都没有主键,则报没有主键异常
+                boolean primaryFlag = false;
+                for (int rIndex = firstRowIndex; rIndex <= lastRowIndex; rIndex++) {
+                    Row row = sheet.getRow(rIndex);
+                    // 第一列单元格
+                    int firstCellIndex = row.getFirstCellNum();
+                    // 最后一列单元格
+                    int lastCellIndex = row.getLastCellNum();
+                    // 如果没有填完的单元格没有值，则跳出此次
+                    if ("".equals(row.getCell(firstCellIndex).getStringCellValue())) {
+                        continue;
+                    }
+                    // 创建字段实体
+                    MetaDataDatabaseFieldFlowRecord field = new MetaDataDatabaseFieldFlowRecord();
+                    // 字段英文名
+                    field.setNameEn(row.getCell(firstCellIndex).toString());
+                    // 字段类型
+                    field.setType(row.getCell(firstCellIndex + 1).toString());
+                    // 长度
+                    field.setLength(Double.valueOf(row.getCell(firstCellIndex + 2).toString()).longValue());
+                    // 精度
+                    field.setPrecision(Double.valueOf(row.getCell(firstCellIndex + 3).toString()).longValue());
+                    // 是否为null
+                    String isNullStr = row.getCell(firstCellIndex + 4).toString();
+                    Integer isNull = 0;
+                    if (isNullStr.equals(ConstantUtils.FIELD_IS_NULL_STR)) {
+                        isNull = ConstantUtils.FIELD_IS_NULL;
+                    } else if (isNullStr.equals(ConstantUtils.FIELD_IS_NOT_NULL_STR)) {
+                        isNull = ConstantUtils.FIELD_IS_NOT_NULL;
+                    } else if ("".equals(isNull)) {
+                        isNull = ConstantUtils.FIELD_IS_NULL;
+                    }
+                    String isPrimaryStr = row.getCell(firstCellIndex + 5).toString();
+                    Integer isPrimary = 0;
+                    if (ConstantUtils.FIELD_IS_PRIMARY_STR.equals(isPrimaryStr)) {
+                        primaryFlag = true;
+                        isPrimary = ConstantUtils.FIELD_IS_PRIMARY;
+                        // 如果是主键，则必须不为NULL
+                        isNull = 0;
+                    } else if (ConstantUtils.FIELD_IS_NOT_PRIMARY_STR.equals(isPrimaryStr)) {
+                        isPrimary = 0;
+                    } else if ("".equals(isPrimaryStr)) {
+                        isPrimary = 0;
+                    }
+                    field.setPrimary(isPrimary);
+                    field.setNullable(isNull);
+                    // 默认值
+                    field.setDef(row.getCell(firstCellIndex + 6).toString());
+                    // 字段中文名
+                    field.setName(row.getCell(firstCellIndex + 7).toString());
+                    field.setMetaDataFlowRecordId(table.getId());
+                    field.setTableName(table.getNameEn());
+                    field.setStatus(ConstantUtils.DATA_STATUS_E);
+                    listFields.add(field);
+
+                    fieldSet.add(field);
+                    // 字段数量
+                    fieldNum++;
+                }
+                if (!primaryFlag) {
+                    throw new RuntimeException("没有设置主键！");
+                }
+                mDDBFFRRepository.save(listFields);
+                // 设置对应关系
+                table.setFieldFlowRecordList(fieldSet);
+
+                tableSet.add(table);
+                // 表数量
+                tableNum++;
+            }
+
+            passiveTask.setTableFlowRecordList(tableSet);
+            // 元模型数量
+            passiveTask.setModelCount(tableNum);
+            // 字段数量
+            passiveTask.setFieldCount(fieldNum);
+            passiveTask.setStatus(ConstantUtils.DATA_STATUS_E);
+            passiveTask.setTaskStatus(ConstantUtils.TASK_HIS_STATUS_2.toString());
+            fileUploadDTO.setFieldId(passiveTask.getId());
+            fileUploadDTO.setMetaChangeId(metadataChangeId);
+            fileUploadDTO.setUploadFile(null);
+            return fileUploadDTO;
+        } catch (FileNotFoundException e) {
+            throw new RuntimeException("文件未找到！");
+        } catch (IOException e) {
+            logger.debug(e.getMessage());
+        }
+        return null;
+    }
