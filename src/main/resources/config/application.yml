@@ -1,0 +1,18 @@
+spring:
+  profiles:
+    active: dev
+  jpa:
+    database-platform: org.hibernate.dialect.MySQL57InnoDBDialect
+    database: MYSQL
+    show-sql: true
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate.cache.use_second_level_cache: false
+      hibernate.cache.use_query_cache: false
+  datasource:
+    type: com.alibaba.druid.pool.DruidDataSource
+    url: jdbc:mysql://10.0.202.75:3306/lijb?useUnicode=true&characterEncoding=utf8&useSSL=false
+    username: root
+    password: troy.abc123
+    driver-class-name: com.mysql.jdbc.Driver

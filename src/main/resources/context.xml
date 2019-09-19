@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 该文件放在web工程的/META-INF目录下 -->
+<!-- tomcat启动时，加载该配置文件，创建连接池，将连接池保存tomcat容器中 -->
+<Context>
+    <Resource name="jdbc/TestDB" auth="Container" type="javax.sql.DataSource"
+              maxActive="100" maxIdle="30" maxWait="10000"
+              username="root" password="troy.abc123" driverClassName="com.mysql.jdbc.Driver"
+              url="jdbc:mysql://10.0.202.75:3306/lijb?useUnicode=true&characterEncoding=utf8&useSSL=false"/>
+</Context>
