@@ -405,4 +405,36 @@ public class MapperUtils<T> {
         ignoreColumnList.add("lastUpdatedDate");
         return ignoreColumnList;
     }
+
+    /**
+     * 转换对象为Map
+     * @param obj
+     * @return
+     */
+    public static Map convertObjToMap(Object obj) {
+        Map<String, Object> reMap = new HashMap();
+        if (obj == null) {
+            return null;
+        }
+        Field[] fields = obj.getClass().getDeclaredFields();
+        try {
+            for (int i = 0; i < fields.length; i++) {
+                try {
+                    Field f = obj.getClass().getDeclaredField(fields[i].getName());
+                    f.setAccessible(true);
+                    Object o = f.get(obj);
+                    reMap.put(fields[i].getName(), o);
+                } catch (NoSuchFieldException e) {
+                    log.error(e.getMessage(), e);
+                } catch (IllegalArgumentException e) {
+                    log.error(e.getMessage(), e);
+                } catch (IllegalAccessException e) {
+                    log.error(e.getMessage(), e);
+                }
+            }
+        } catch (SecurityException e) {
+            log.error(e.getMessage(), e);
+        }
+        return reMap;
+    }
 }
